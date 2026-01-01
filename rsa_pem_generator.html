@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RSA私钥PEM生成器</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+            resize: vertical;
+            min-height: 80px;
+        }
+        input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f0f8ff;
+            border: 1px solid #add8e6;
+            border-radius: 4px;
+        }
+        #pem-output {
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+            background-color: #fafafa;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .error {
+            color: red;
+            margin-top: 5px;
+        }
+        .success {
+            color: green;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>RSA私钥PEM生成器</h1>
+    <div class="container">
+        <p>请输入RSA参数，系统将生成对应的PEM格式私钥：</p>
+        
+        <div class="input-group">
+            <label for="p">素数 p：</label>
+            <textarea id="p" placeholder="请输入第一个大素数p"></textarea>
+        </div>
+        
+        <div class="input-group">
+            <label for="q">素数 q：</label>
+            <textarea id="q" placeholder="请输入第二个大素数q"></textarea>
+        </div>
+        
+        <div class="input-group">
+            <label for="e">公钥指数 e：</label>
+            <input type="number" id="e" value="65537" placeholder="请输入公钥指数e，通常为65537">
+        </div>
+        
+        <button onclick="generatePEM()">生成PEM私钥</button>
+        <button onclick="downloadPEM()" id="download-btn" disabled>下载PEM文件</button>
+        
+        <div id="intermediate-values" style="margin-top: 20px; padding: 15px; background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
+            <h3>中间计算值：</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;">
+                <div>
+                    <strong>公钥指数 e：</strong>
+                    <div id="e-value" style="font-family: monospace; background-color: #fafafa; padding: 5px; border-radius: 3px;"></div>
+                </div>
+                <div>
+                    <strong>私钥指数 d：</strong>
+                    <div id="d-value" style="font-family: monospace; background-color: #fafafa; padding: 5px; border-radius: 3px; word-break: break-all;"></div>
+                </div>
+                <div>
+                    <strong>dmp1 (d mod (p-1))：</strong>
+                    <div id="dmp1-value" style="font-family: monospace; background-color: #fafafa; padding: 5px; border-radius: 3px; word-break: break-all;"></div>
+                </div>
+                <div>
+                    <strong>dmq1 (d mod (q-1))：</strong>
+                    <div id="dmq1-value" style="font-family: monospace; background-color: #fafafa; padding: 5px; border-radius: 3px; word-break: break-all;"></div>
+                </div>
+                <div>
+                    <strong>iqmp (q^-1 mod p)：</strong>
+                    <div id="iqmp-value" style="font-family: monospace; background-color: #fafafa; padding: 5px; border-radius: 3px; word-break: break-all;"></div>
+                </div>
+                <div>
+                    <strong>模数 n (p*q)：</strong>
+                    <div id="n-value" style="font-family: monospace; background-color: #fafafa; padding: 5px; border-radius: 3px; word-break: break-all;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="result">
+            <h3>生成结果：</h3>
+            <div id="pem-output"></div>
+        </div>
+    </div>
+    
+    <script>
+        // 扩展欧几里得算法
+        function extended_gcd(a, b) {
+            if (b === 0n) {
+                return [1n, 0n, a];
+            } else {
+                const [x0, y0, g] = extended_gcd(b, a % b);
+                const x = y0;
+                const y = x0 - (a / b) * y0;
+                return [x, y, g];
+            }
+        }
+        
+        // 计算模逆元
+        function mod_inverse(a, m) {
+            const [x, y, g] = extended_gcd(a, m);
+            if (g !== 1n) {
+                throw new Error("模逆不存在");
+            } else {
+                // 确保返回正数结果，JavaScript中负数的模运算结果符号与被除数相同
+                return (x % m + m) % m;
+            }
+        }
+        
+        // 生成PEM私钥
+        function generatePEM() {
+            try {
+                // 获取输入值
+                const p_str = document.getElementById('p').value.trim();
+                const q_str = document.getElementById('q').value.trim();
+                const e_str = document.getElementById('e').value.trim();
+                
+                // 验证输入
+                if (!p_str || !q_str || !e_str) {
+                    throw new Error("请填写所有必填字段");
+                }
+                
+                // 转换为BigInt
+                const p = BigInt(p_str);
+                const q = BigInt(q_str);
+                const e = BigInt(e_str);
+                
+                // 计算n
+                const n = p * q;
+                
+                // 计算欧拉函数φ(n) = (p-1) * (q-1)
+                const phi_n = (p - 1n) * (q - 1n);
+                
+                // 计算私钥指数d
+                const d = mod_inverse(e, phi_n);
+                
+                // 计算dmp1, dmq1, iqmp
+                const dmp1 = d % (p - 1n);
+                const dmq1 = d % (q - 1n);
+                const iqmp = mod_inverse(q, p);
+                
+                // 显示中间计算值
+                document.getElementById('e-value').textContent = e.toString();
+                document.getElementById('d-value').textContent = d.toString();
+                document.getElementById('dmp1-value').textContent = dmp1.toString();
+                document.getElementById('dmq1-value').textContent = dmq1.toString();
+                document.getElementById('iqmp-value').textContent = iqmp.toString();
+                document.getElementById('n-value').textContent = n.toString();
+                
+                // 构造PEM私钥
+                const pem = constructPEM(n, e, d, p, q, dmp1, dmq1, iqmp);
+                
+                // 显示结果
+                document.getElementById('pem-output').textContent = pem;
+                document.getElementById('download-btn').disabled = false;
+                
+                // 保存PEM到全局变量，用于下载
+                window.generatedPEM = pem;
+                
+            } catch (error) {
+                // 清空中间值
+                document.getElementById('e-value').textContent = '';
+                document.getElementById('d-value').textContent = '';
+                document.getElementById('dmp1-value').textContent = '';
+                document.getElementById('dmq1-value').textContent = '';
+                document.getElementById('iqmp-value').textContent = '';
+                document.getElementById('n-value').textContent = '';
+                
+                // 显示错误
+                document.getElementById('pem-output').innerHTML = `<span class="error">错误：${error.message}</span>`;
+                document.getElementById('download-btn').disabled = true;
+            }
+        }
+        
+        // ASN.1 DER编码工具函数
+        
+        // 编码DER长度
+        function derEncodeLength(length) {
+            if (length < 128) {
+                // 短形式：直接用一个字节表示长度
+                return new Uint8Array([length]);
+            } else {
+                // 长形式：第一个字节表示后续字节数，后续字节是长度的大端表示
+                const bytes = [];
+                let temp = length;
+                
+                while (temp > 0) {
+                    bytes.unshift(temp & 0xff);
+                    temp = temp >> 8;
+                }
+                
+                const lengthBytes = new Uint8Array(1 + bytes.length);
+                lengthBytes[0] = 0x80 | bytes.length; // 第一个字节：10000000 | 后续字节数
+                lengthBytes.set(bytes, 1);
+                
+                return lengthBytes;
+            }
+        }
+        
+        // 将BigInt转换为DER整数格式
+        function derEncodeInteger(num) {
+            let bytes = [];
+            let temp = num;
+            
+            if (temp === 0n) {
+                const length = derEncodeLength(1);
+                const der = new Uint8Array(1 + length.length + 1);
+                der[0] = 0x02; // 整数类型
+                der.set(length, 1);
+                der[1 + length.length] = 0x00;
+                return der;
+            }
+            
+            // 转换为大端字节序
+            while (temp > 0n) {
+                bytes.unshift(Number(temp & 0xffn));
+                temp = temp >> 8n;
+            }
+            
+            // 确保正数：如果最高位是1，添加一个0x00字节
+            if (bytes[0] & 0x80) {
+                bytes.unshift(0x00);
+            }
+            
+            // 构造DER整数：类型(0x02) + 长度 + 值
+            const length = derEncodeLength(bytes.length);
+            const der = new Uint8Array(1 + length.length + bytes.length);
+            der[0] = 0x02; // 整数类型
+            der.set(length, 1);
+            der.set(bytes, 1 + length.length);
+            
+            return der;
+        }
+        
+        // DER编码序列（多个DER元素的集合）
+        function derEncodeSequence(elements) {
+            // 计算所有元素的总长度
+            let totalLength = 0;
+            for (const element of elements) {
+                totalLength += element.length;
+            }
+            
+            // 构造DER序列：类型(0x30) + 长度 + 元素
+            const sequenceType = new Uint8Array([0x30]); // 序列类型
+            const sequenceLength = derEncodeLength(totalLength);
+            
+            // 创建最终的DER编码
+            const der = new Uint8Array(
+                sequenceType.length + 
+                sequenceLength.length + 
+                totalLength
+            );
+            
+            let offset = 0;
+            
+            // 复制序列类型
+            der.set(sequenceType, offset);
+            offset += sequenceType.length;
+            
+            // 复制序列长度
+            der.set(sequenceLength, offset);
+            offset += sequenceLength.length;
+            
+            // 复制所有元素
+            for (const element of elements) {
+                der.set(element, offset);
+                offset += element.length;
+            }
+            
+            return der;
+        }
+        
+        // 构造PEM格式私钥
+        function constructPEM(n, e, d, p, q, dmp1, dmq1, iqmp) {
+            // DER编码RSA私钥结构
+            // RSA私钥ASN.1结构：
+            // RSAPrivateKey ::= SEQUENCE {
+            //     version           Version,
+            //     modulus           INTEGER,
+            //     publicExponent    INTEGER,
+            //     privateExponent   INTEGER,
+            //     prime1            INTEGER,
+            //     prime2            INTEGER,
+            //     exponent1         INTEGER,
+            //     exponent2         INTEGER,
+            //     coefficient       INTEGER
+            // }
+            
+            const version = derEncodeInteger(0n);
+            const modulus = derEncodeInteger(n);
+            const publicExponent = derEncodeInteger(e);
+            const privateExponent = derEncodeInteger(d);
+            const prime1 = derEncodeInteger(p);
+            const prime2 = derEncodeInteger(q);
+            const exponent1 = derEncodeInteger(dmp1);
+            const exponent2 = derEncodeInteger(dmq1);
+            const coefficient = derEncodeInteger(iqmp);
+            
+            // 构造完整的DER序列
+            const derSequence = derEncodeSequence([
+                version, modulus, publicExponent, privateExponent,
+                prime1, prime2, exponent1, exponent2, coefficient
+            ]);
+            
+            // Base64编码
+            const base64 = btoa(String.fromCharCode.apply(null, derSequence));
+            
+            // 添加PEM格式的换行符（每64个字符换行）
+            const pemLines = [];
+            for (let i = 0; i < base64.length; i += 64) {
+                pemLines.push(base64.substring(i, i + 64));
+            }
+            const pemBody = pemLines.join('\n');
+            
+            // 构造完整的PEM格式
+            const pem = `-----BEGIN RSA PRIVATE KEY-----\n${pemBody}\n-----END RSA PRIVATE KEY-----`;
+            
+            return pem;
+        }
+        
+        // 下载PEM文件
+        function downloadPEM() {
+            if (window.generatedPEM) {
+                const blob = new Blob([window.generatedPEM], { type: 'application/x-pem-file' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'rsa_private_key.pem';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+        }
+    </script>
+</body>
+</html>
