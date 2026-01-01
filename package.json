@@ -1,0 +1,17 @@
+{
+  "name": "rsa-key-pair-generator",
+  "version": "1.0.0",
+  "description": "A web-based RSA key pair generator that generates PEM format private keys from p, q, and e parameters",
+  "main": "rsa_pem_generator.html",
+  "scripts": {
+    "build": "echo 'No build needed for static HTML'"
+  },
+  "keywords": [
+    "rsa",
+    "key-generator",
+    "pem",
+    "cryptography"
+  ],
+  "author": "",
+  "license": "MIT"
+}
